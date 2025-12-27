@@ -1,60 +1,40 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import axios from 'axios';
-import { Loader2, CheckCircle, XCircle, Sun, Moon } from 'lucide-react';
+import { Loader2, Upload, Github } from 'lucide-react';
 
 const API_URL = 'http://localhost:3001/api';
 
 export default function Home() {
   const [request, setRequest] = useState('');
-  const [plan, setPlan] = useState(null);
-  const [configs, setConfigs] = useState(null);
-  const [deployment, setDeployment] = useState(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [githubUrl, setGithubUrl] = useState('');
+  const [uploadMethod, setUploadMethod] = useState<'upload' | 'github'>('upload');
+  const [plan, setPlan] = useState<any>(null);
+  const [configs, setConfigs] = useState<any>(null);
+  const [deployment, setDeployment] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
-  // Load theme from localStorage on mount
-  useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
-    if (savedTheme) {
-      setTheme(savedTheme);
-    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      setTheme('dark');
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setFiles(Array.from(e.target.files));
     }
-  }, []);
-
-  // Apply theme to document
-  useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-    localStorage.setItem('theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'light' ? 'dark' : 'light');
   };
 
   const handlePlan = async () => {
-    if (!request.trim()) {
-      setError('Please enter a deployment request');
-      return;
-    }
-
     setLoading(true);
-    setError(null);
     try {
-      const res = await axios.post(`${API_URL}/deployment/plan`, { request });
+      // ✅ FIX: Correct template string syntax
+      const res = await axios.post(`${API_URL}/deployment/generate-plan`, { request });
       setPlan(res.data.plan);
-      setError(null);
     } catch (error) {
-      console.error(error);
-      const errorMessage = error.response?.data?.error || error.message || 'Failed to generate plan';
-      setError(errorMessage);
+      console.error('Full error:', error);
+      if (axios.isAxiosError(error)) {
+        alert(`Failed to generate plan: ${error.response?.data?.error || error.message}`);
+      } else {
+        alert('Failed to generate plan');
+      }
     }
     setLoading(false);
   };
@@ -62,13 +42,38 @@ export default function Home() {
   const handleGenerateConfigs = async () => {
     setLoading(true);
     try {
+      // Upload files first
+      let codeAnalysis = null;
+      if (uploadMethod === 'upload' && files.length > 0) {
+        const formData = new FormData();
+        files.forEach(file => formData.append('files', file));
+        
+        const uploadRes = await axios.post(`${API_URL}/deployment/upload-code`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
+        });
+        codeAnalysis = uploadRes.data;
+      } else if (uploadMethod === 'github' && githubUrl) {
+        const cloneRes = await axios.post(`${API_URL}/deployment/clone-github`, { githubUrl });
+        codeAnalysis = cloneRes.data;
+      }
+
       const res = await axios.post(`${API_URL}/deployment/generate-configs`, {
         framework: plan.framework,
-        projectDetails: { serviceName: 'my-app' }
+        projectDetails: { 
+          serviceName: 'my-app',
+        },
+        codeAnalysis: codeAnalysis
       });
       setConfigs(res.data.configs);
     } catch (error) {
-      console.error(error);
+      console.error('Full error:', error);
+      if (axios.isAxiosError(error)) {
+        alert(`Failed to generate configs: ${error.response?.data?.error || error.message}`);
+      } else {
+        alert('Failed to generate configs');
+      }
     }
     setLoading(false);
   };
@@ -79,69 +84,123 @@ export default function Home() {
       const res = await axios.post(`${API_URL}/deployment/deploy`, {
         projectName: 'my-deployment',
         dockerfile: configs.dockerfile,
+        githubUrl: uploadMethod === 'github' ? githubUrl : null,
+        uploadedCodePath: uploadMethod === 'upload' ? configs.codePath : null,
         envVars: {},
         webhookUrl: `${window.location.origin}/api/webhook`
       });
       setDeployment(res.data);
     } catch (error) {
-      console.error(error);
+      console.error('Full error:', error);
+      if (axios.isAxiosError(error)) {
+        alert(`Deployment failed: ${error.response?.data?.error || error.message}`);
+      } else {
+        alert('Deployment failed');
+      }
     }
     setLoading(false);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-8 transition-colors duration-200">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-8">
       <div className="max-w-6xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-            🚀 Multi-Agent Deployment Platform
-          </h1>
-          <button
-            onClick={toggleTheme}
-            className="p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            aria-label="Toggle theme"
-          >
-            {theme === 'light' ? (
-              <Moon className="w-5 h-5 text-gray-700 dark:text-gray-300" />
-            ) : (
-              <Sun className="w-5 h-5 text-gray-700 dark:text-gray-300" />
-            )}
-          </button>
+        <h1 className="text-4xl font-bold text-gray-900 mb-8">
+          🚀 Multi-Agent Deployment Platform
+        </h1>
+
+        {/* Deployment Method Selection */}
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <h2 className="text-xl font-semibold mb-4">Choose Deployment Method</h2>
+          <div className="flex gap-4 mb-4">
+            <button
+              onClick={() => setUploadMethod('upload')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
+                uploadMethod === 'upload' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-200 text-gray-700'
+              }`}
+            >
+              <Upload size={20} />
+              Upload Files
+            </button>
+            <button
+              onClick={() => setUploadMethod('github')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
+                uploadMethod === 'github' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-200 text-gray-700'
+              }`}
+            >
+              <Github size={20} />
+              GitHub Repo
+            </button>
+          </div>
+
+          {uploadMethod === 'upload' ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Upload Your Project Files (ZIP or individual files)
+              </label>
+              {/* ✅ FIX: Uncontrolled file input with key to reset */}
+              <input
+                key={files.length} // Forces re-render when files change
+                type="file"
+                multiple
+                onChange={handleFileUpload}
+                className="w-full p-3 border border-gray-300 rounded-lg"
+                accept=".js,.jsx,.ts,.tsx,.json,.html,.css,.zip"
+              />
+              {files.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-sm text-gray-600">
+                    {files.length} file(s) selected
+                  </p>
+                  <ul className="text-xs text-gray-500 mt-1 max-h-20 overflow-y-auto">
+                    {files.map((file, idx) => (
+                      <li key={idx}>• {file.name}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                GitHub Repository URL
+              </label>
+              <input
+                type="text"
+                placeholder="https://github.com/username/repo"
+                value={githubUrl}
+                onChange={(e) => setGithubUrl(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg"
+              />
+            </div>
+          )}
         </div>
 
         {/* Input Section */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6 border border-gray-200 dark:border-gray-700 transition-colors">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Deployment Request
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Describe Your Deployment
           </label>
           <textarea
-            className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 transition-colors"
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
             rows={4}
             placeholder="Deploy my Next.js app with Docker + Railway"
             value={request}
-            onChange={(e) => {
-              setRequest(e.target.value);
-              setError(null);
-            }}
+            onChange={(e) => setRequest(e.target.value)}
           />
-          {error && (
-            <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm">
-              <div className="flex items-center space-x-2">
-                <XCircle className="w-4 h-4" />
-                <span>{error}</span>
-              </div>
-            </div>
-          )}
           <button
             onClick={handlePlan}
-            disabled={loading || !request.trim()}
-            className="mt-4 px-6 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            disabled={loading || !request}
+            className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {loading ? (
-              <span className="flex items-center space-x-2">
-                <Loader2 className="animate-spin w-4 h-4" />
-                <span>Generating...</span>
-              </span>
+              <>
+                <Loader2 className="animate-spin" size={20} />
+                Generating...
+              </>
             ) : (
               'Generate Plan'
             )}
@@ -150,87 +209,90 @@ export default function Home() {
 
         {/* Plan Section */}
         {plan && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6 border border-gray-200 dark:border-gray-700 transition-colors">
-            <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">📋 Deployment Plan</h2>
-            <div className="space-y-2 text-gray-700 dark:text-gray-300">
-              <p><strong className="text-gray-900 dark:text-white">Framework:</strong> <span className="text-gray-700 dark:text-gray-300">{plan.framework}</span></p>
-              <p><strong className="text-gray-900 dark:text-white">Target:</strong> <span className="text-gray-700 dark:text-gray-300">{plan.deploymentTarget}</span></p>
-              <p><strong className="text-gray-900 dark:text-white">Estimated Time:</strong> <span className="text-gray-700 dark:text-gray-300">{plan.estimatedTime}</span></p>
+          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h2 className="text-2xl font-bold mb-4">📋 Deployment Plan</h2>
+            <div className="space-y-2">
+              <p><strong>Framework:</strong> {plan.framework}</p>
+              <p><strong>Target:</strong> {plan.deploymentTarget}</p>
+              <p><strong>Estimated Time:</strong> {plan.estimatedTime}</p>
               <div className="mt-4">
-                <strong className="text-gray-900 dark:text-white">Steps:</strong>
-                <ol className="list-decimal list-inside mt-2 space-y-1 text-gray-700 dark:text-gray-300">
-                  {plan.steps?.map((s, i) => (
-                    <li key={i} className="mb-1">{s.description}</li>
+                <strong>Steps:</strong>
+                <ol className="list-decimal list-inside mt-2 space-y-1 text-sm text-gray-700">
+                  {plan.steps?.map((step: any, idx: number) => (
+                    <li key={idx}>{step.description}</li>
                   ))}
                 </ol>
               </div>
-              {plan.requirements && plan.requirements.length > 0 && (
-                <div className="mt-4">
-                  <strong className="text-gray-900 dark:text-white">Requirements:</strong>
-                  <ul className="list-disc list-inside mt-2 space-y-1 text-gray-700 dark:text-gray-300">
-                    {plan.requirements.map((req, i) => (
-                      <li key={i}>{req}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </div>
             <button
               onClick={handleGenerateConfigs}
-              className="mt-4 px-6 py-2 bg-green-600 dark:bg-green-500 text-white rounded-lg hover:bg-green-700 dark:hover:bg-green-600 transition-colors"
+              disabled={
+                loading || 
+                (uploadMethod === 'upload' && files.length === 0) || 
+                (uploadMethod === 'github' && !githubUrl)
+              }
+              className="mt-4 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              Generate Configs
+              {loading ? (
+                <>
+                  <Loader2 className="animate-spin" size={20} />
+                  Analyzing Code...
+                </>
+              ) : (
+                'Generate Configs & Analyze Code'
+              )}
             </button>
           </div>
         )}
 
         {/* Configs Section */}
         {configs && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6 border border-gray-200 dark:border-gray-700 transition-colors">
-            <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">⚙️ Generated Configs</h2>
+          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h2 className="text-2xl font-bold mb-4">⚙️ Generated Configs</h2>
             <div className="space-y-4">
-              {configs.dockerfile && (
-                <div>
-                  <h3 className="font-semibold mb-2 text-gray-900 dark:text-white">Dockerfile</h3>
-                  <pre className="bg-gray-100 dark:bg-gray-900 p-4 rounded border border-gray-300 dark:border-gray-700 overflow-x-auto text-sm text-gray-800 dark:text-gray-200 font-mono leading-relaxed">
-                    <code>{configs.dockerfile}</code>
-                  </pre>
-                </div>
-              )}
+              <div>
+                <h3 className="font-semibold mb-2">Dockerfile</h3>
+                <pre className="bg-gray-100 p-4 rounded overflow-x-auto text-sm">
+                  {configs.dockerfile}
+                </pre>
+              </div>
               {configs.githubActions && (
                 <div>
-                  <h3 className="font-semibold mb-2 text-gray-900 dark:text-white">GitHub Actions</h3>
-                  <pre className="bg-gray-100 dark:bg-gray-900 p-4 rounded border border-gray-300 dark:border-gray-700 overflow-x-auto text-sm text-gray-800 dark:text-gray-200 font-mono leading-relaxed">
-                    <code>{configs.githubActions}</code>
-                  </pre>
-                </div>
-              )}
-              {configs.railwayConfig && (
-                <div>
-                  <h3 className="font-semibold mb-2 text-gray-900 dark:text-white">Railway Config</h3>
-                  <pre className="bg-gray-100 dark:bg-gray-900 p-4 rounded border border-gray-300 dark:border-gray-700 overflow-x-auto text-sm text-gray-800 dark:text-gray-200 font-mono leading-relaxed">
-                    <code>{configs.railwayConfig}</code>
+                  <h3 className="font-semibold mb-2">GitHub Actions</h3>
+                  <pre className="bg-gray-100 p-4 rounded overflow-x-auto text-sm">
+                    {configs.githubActions}
                   </pre>
                 </div>
               )}
             </div>
             <button
               onClick={handleDeploy}
-              className="mt-4 px-6 py-2 bg-purple-600 dark:bg-purple-500 text-white rounded-lg hover:bg-purple-700 dark:hover:bg-purple-600 transition-colors"
+              disabled={loading}
+              className="mt-4 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              Deploy Now
+              {loading ? (
+                <>
+                  <Loader2 className="animate-spin" size={20} />
+                  Deploying...
+                </>
+              ) : (
+                'Deploy Now'
+              )}
             </button>
           </div>
         )}
 
         {/* Deployment Status */}
         {deployment && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-200 dark:border-gray-700 transition-colors">
-            <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">🎯 Deployment Status</h2>
-            <div className="flex items-center space-x-2 text-gray-700 dark:text-gray-300">
-              <Loader2 className="animate-spin text-blue-600 dark:text-blue-400" />
-              <span>Deploying... Track ID: <span className="font-mono text-gray-900 dark:text-white">{deployment.trackingId}</span></span>
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <h2 className="text-2xl font-bold mb-4">🎯 Deployment Status</h2>
+            <div className="flex items-center space-x-2">
+              <Loader2 className="animate-spin text-blue-600" />
+              <span>Deploying... Track ID: {deployment.trackingId}</span>
             </div>
+            {deployment.message && (
+              <p className="mt-2 text-sm text-gray-600">{deployment.message}</p>
+            )}
           </div>
         )}
       </div>
