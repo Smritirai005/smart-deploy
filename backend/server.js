@@ -9,11 +9,17 @@ app.use(express.json());
 // Import routes
 const deploymentRoutes = require('./routes/deployment');
 const statusRoutes = require('./routes/status');
-const inngestServe = require('./inngest/serve');
+const uploadRoutes = require('./routes/upload');
 
+// Use routes
 app.use('/api/deployment', deploymentRoutes);
+app.use('/api/deployment', uploadRoutes); // Add upload routes
 app.use('/api/status', statusRoutes);
-app.use('/api/inngest', inngestServe);
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
