@@ -10,11 +10,13 @@ app.use(express.json());
 const deploymentRoutes = require('./routes/deployment');
 const statusRoutes = require('./routes/status');
 const uploadRoutes = require('./routes/upload');
+const documentationRoutes = require('./routes/documentation');
 
 // Use routes
 app.use('/api/deployment', deploymentRoutes);
 app.use('/api/deployment', uploadRoutes); // Add upload routes
 app.use('/api/status', statusRoutes);
+app.use('/api/documentation', documentationRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
